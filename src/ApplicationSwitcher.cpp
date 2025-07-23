@@ -123,26 +123,100 @@ void ApplicationSwitcher::onProcessStarted(const QString &appName, qint64 pid)
 {
     qDebug() << "Process started:" << appName << "PID:" << pid;
     
-    // Find and embed the window
-    QTimer::singleShot(2000, this, [this, appName, pid]() {
+    // 使用多次尝试查找窗口的方法
+    QTimer *findWindowAttempt = new QTimer(this);
+    
+    // 使用 QObject 属性存储尝试次数
+    findWindowAttempt->setProperty("attempts", 0);
+    findWindowAttempt->setProperty("maxAttempts", 15); // 增加到15次尝试
+    findWindowAttempt->setProperty("appName", appName);
+    findWindowAttempt->setProperty("pid", pid);
+    
+    connect(findWindowAttempt, &QTimer::timeout, this, [this, findWindowAttempt]() {
+        // 获取属性
+        int attempts = findWindowAttempt->property("attempts").toInt() + 1;
+        int maxAttempts = findWindowAttempt->property("maxAttempts").toInt();
+        QString appName = findWindowAttempt->property("appName").toString();
+        qint64 pid = findWindowAttempt->property("pid").toLongLong();
+        
+        // 更新尝试次数
+        findWindowAttempt->setProperty("attempts", attempts);
+        
         Window windowId = 0;
+        qDebug() << "Attempting to find" << appName << "window, attempt" << attempts << "of" << maxAttempts;
         
         if (appName == "QGC") {
+            // 首先尝试通过PID查找
             windowId = m_windowEmbedder->findQGCWindow(pid);
+            qDebug() << "  - PID search result:" << (windowId ? "Found" : "Not found");
+            
+            // 如果通过PID找不到，尝试通过标题查找
+            if (windowId == 0) {
+                // 尝试多种可能的标题
+                QStringList possibleTitles = {"QGroundControl", "Ground Control", "GCS", "QGC"};
+                for (const QString &title : possibleTitles) {
+                    windowId = m_windowEmbedder->findWindowByTitle(title);
+                    if (windowId) {
+                        qDebug() << "  - Found by title:" << title;
+                        break;
+                    }
+                }
+            }
+            
             if (windowId && m_qgcContainer) {
-                m_windowEmbedder->embedWindow(windowId, m_qgcContainer);
+                qDebug() << "Found QGC window with ID:" << windowId << ", embedding now";
+                if (m_windowEmbedder->embedWindow(windowId, m_qgcContainer)) {
+                    qDebug() << "Successfully embedded QGC window";
+                    findWindowAttempt->stop();
+                    findWindowAttempt->deleteLater();
+                } else {
+                    qDebug() << "Failed to embed QGC window";
+                }
             }
         } else if (appName == "RVIZ") {
+            // 首先尝试通过PID查找
             windowId = m_windowEmbedder->findRVIZWindow(pid);
+            qDebug() << "  - PID search result:" << (windowId ? "Found" : "Not found");
+            
+            // 如果通过PID找不到，尝试通过标题查找
+            if (windowId == 0) {
+                // 尝试多种可能的标题
+                QStringList possibleTitles = {"RViz", "RVIZ", "rviz", "ROS Visualization"};
+                for (const QString &title : possibleTitles) {
+                    windowId = m_windowEmbedder->findWindowByTitle(title);
+                    if (windowId) {
+                        qDebug() << "  - Found by title:" << title;
+                        break;
+                    }
+                }
+            }
+            
             if (windowId && m_rvizContainer) {
-                m_windowEmbedder->embedWindow(windowId, m_rvizContainer);
+                qDebug() << "Found RVIZ window with ID:" << windowId << ", embedding now";
+                if (m_windowEmbedder->embedWindow(windowId, m_rvizContainer)) {
+                    qDebug() << "Successfully embedded RVIZ window";
+                    findWindowAttempt->stop();
+                    findWindowAttempt->deleteLater();
+                } else {
+                    qDebug() << "Failed to embed RVIZ window";
+                }
             }
         }
         
         if (windowId == 0) {
-            qDebug() << "Could not find window for" << appName;
+            qDebug() << "Could not find window for" << appName << "on attempt" << attempts;
+            
+            // 如果达到最大尝试次数，停止尝试
+            if (attempts >= maxAttempts) {
+                qDebug() << "Giving up finding window for" << appName << "after" << maxAttempts << "attempts";
+                findWindowAttempt->stop();
+                findWindowAttempt->deleteLater();
+            }
         }
     });
+    
+    // 每1.5秒尝试一次，最多尝试15次，持续约22.5秒
+    findWindowAttempt->start(1500);
 }
 
 void ApplicationSwitcher::onProcessStopped(const QString &appName)

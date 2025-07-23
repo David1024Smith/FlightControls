@@ -249,9 +249,44 @@ void WindowEmbedder::hideEmbeddedWindow(Window windowId)
 
 void WindowEmbedder::searchForWindows()
 {
-    // This will be called periodically to find new windows
-    // The actual window finding will be triggered by ProcessManager
-    // when processes are started
+    // 主动查找所有窗口，打印调试信息
+    X11Helper* x11 = X11Helper::instance();
+    QList<Window> windows = x11->getAllWindows();
+    
+    static int searchCount = 0;
+    searchCount++;
+    
+    // 每10次搜索打印一次详细信息（避免日志过多）
+    bool printDetails = (searchCount % 10 == 0);
+    
+    if (printDetails) {
+        qDebug() << "Searching for windows, found" << windows.size() << "windows";
+    }
+    
+    for (Window windowId : windows) {
+        if (!x11->isApplicationWindow(windowId)) {
+            continue;
+        }
+        
+        QString title = x11->getWindowTitle(windowId);
+        QString className = x11->getWindowClass(windowId);
+        
+        // 只打印有标题或类名的窗口
+        if (!title.isEmpty() || !className.isEmpty()) {
+            if (printDetails) {
+                qDebug() << "Window:" << windowId << "Title:" << title << "Class:" << className;
+            }
+            
+            // 检查是否是我们要找的窗口
+            if (matchesQGC(title, className)) {
+                qDebug() << "Found QGC window:" << windowId << "Title:" << title << "Class:" << className;
+                emit windowFound(windowId, "QGC");
+            } else if (matchesRVIZ(title, className)) {
+                qDebug() << "Found RVIZ window:" << windowId << "Title:" << title << "Class:" << className;
+                emit windowFound(windowId, "RVIZ");
+            }
+        }
+    }
 }
 
 void WindowEmbedder::monitorEmbeddedWindows()
@@ -310,19 +345,65 @@ void WindowEmbedder::cleanupX11()
 
 bool WindowEmbedder::matchesQGC(const QString &title, const QString &className)
 {
-    QStringList qgcTitles = {"QGroundControl", "qgroundcontrol", "QGC"};
-    QStringList qgcClasses = {"QGroundControl", "qgroundcontrol"};
+    // 打印所有窗口的标题和类名，帮助调试
+    qDebug() << "Checking window with title:" << title << "and class:" << className;
     
-    for (const QString &qgcTitle : qgcTitles) {
-        if (title.contains(qgcTitle, Qt::CaseInsensitive)) {
+    // 如果标题或类名为空，不要立即排除
+    if (title.isEmpty() && className.isEmpty()) {
+        return false;
+    }
+    
+    // 非常宽松的匹配条件
+    QStringList qgcTitles = {
+        "QGroundControl", "qgroundcontrol", "QGC", "Ground", "Control", 
+        "AppImage", "GCS", "UAV", "Drone", "Flight", "PX4", "Ardupilot"
+    };
+    
+    QStringList qgcClasses = {
+        "QGroundControl", "qgroundcontrol", "AppImage", "QGC", 
+        "org.qgroundcontrol", "org.px4", "px4", "gcs"
+    };
+    
+    // 检查标题
+    if (!title.isEmpty()) {
+        // 完全匹配
+        if (title == "QGroundControl") {
+            qDebug() << "Exact match for QGC title:" << title;
             return true;
+        }
+        
+        // 部分匹配
+        for (const QString &qgcTitle : qgcTitles) {
+            if (title.contains(qgcTitle, Qt::CaseInsensitive)) {
+                qDebug() << "Matched QGC by title:" << title << "with pattern:" << qgcTitle;
+                return true;
+            }
         }
     }
     
-    for (const QString &qgcClass : qgcClasses) {
-        if (className.contains(qgcClass, Qt::CaseInsensitive)) {
+    // 检查类名
+    if (!className.isEmpty()) {
+        // 完全匹配
+        if (className == "QGroundControl") {
+            qDebug() << "Exact match for QGC class:" << className;
             return true;
         }
+        
+        // 部分匹配
+        for (const QString &qgcClass : qgcClasses) {
+            if (className.contains(qgcClass, Qt::CaseInsensitive)) {
+                qDebug() << "Matched QGC by class:" << className << "with pattern:" << qgcClass;
+                return true;
+            }
+        }
+    }
+    
+    // 特殊情况：如果标题包含"ground"和"control"，很可能是QGroundControl
+    if (!title.isEmpty() && 
+        title.contains("ground", Qt::CaseInsensitive) && 
+        title.contains("control", Qt::CaseInsensitive)) {
+        qDebug() << "Matched QGC by combined keywords in title:" << title;
+        return true;
     }
     
     return false;
@@ -330,18 +411,55 @@ bool WindowEmbedder::matchesQGC(const QString &title, const QString &className)
 
 bool WindowEmbedder::matchesRVIZ(const QString &title, const QString &className)
 {
-    QStringList rvizTitles = {"RViz", "rviz", "RVIZ"};
-    QStringList rvizClasses = {"rviz", "RViz"};
+    // 打印窗口信息，帮助调试
+    qDebug() << "Checking if window matches RVIZ - Title:" << title << "Class:" << className;
     
-    for (const QString &rvizTitle : rvizTitles) {
-        if (title.contains(rvizTitle, Qt::CaseInsensitive)) {
+    // 如果标题或类名为空，不要立即排除
+    if (title.isEmpty() && className.isEmpty()) {
+        return false;
+    }
+    
+    // 非常宽松的匹配条件
+    QStringList rvizTitles = {
+        "RViz", "rviz", "RVIZ", "ROS", "Visualization", 
+        "Robot", "Visualizer", "3D", "View"
+    };
+    
+    QStringList rvizClasses = {
+        "rviz", "RViz", "RVIZ", "org.ros", "ros-visualization"
+    };
+    
+    // 检查标题
+    if (!title.isEmpty()) {
+        // 完全匹配
+        if (title == "rviz" || title == "RViz" || title == "RVIZ") {
+            qDebug() << "Exact match for RVIZ title:" << title;
             return true;
+        }
+        
+        // 部分匹配
+        for (const QString &rvizTitle : rvizTitles) {
+            if (title.contains(rvizTitle, Qt::CaseInsensitive)) {
+                qDebug() << "Matched RVIZ by title:" << title << "with pattern:" << rvizTitle;
+                return true;
+            }
         }
     }
     
-    for (const QString &rvizClass : rvizClasses) {
-        if (className.contains(rvizClass, Qt::CaseInsensitive)) {
+    // 检查类名
+    if (!className.isEmpty()) {
+        // 完全匹配
+        if (className == "rviz" || className == "RViz" || className == "RVIZ") {
+            qDebug() << "Exact match for RVIZ class:" << className;
             return true;
+        }
+        
+        // 部分匹配
+        for (const QString &rvizClass : rvizClasses) {
+            if (className.contains(rvizClass, Qt::CaseInsensitive)) {
+                qDebug() << "Matched RVIZ by class:" << className << "with pattern:" << rvizClass;
+                return true;
+            }
         }
     }
     

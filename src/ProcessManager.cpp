@@ -4,6 +4,8 @@
 #include <QFileInfo>
 #include <QDebug>
 #include <QThread>
+#include <QTime>
+#include <QDateTime>
 
 ProcessManager::ProcessManager(QObject *parent)
     : QObject(parent)
@@ -97,27 +99,31 @@ bool ProcessManager::startRVIZ()
         return true;
     }
     
-    if (!checkROSEnvironment()) {
-        emit processError("RVIZ", "ROS environment not properly configured");
-        return false;
-    }
-    
     setRVIZState(Starting);
     
-    // Start roscore first
+    // 使用系统环境变量
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert("ROS_MASTER_URI", "http://localhost:11311");
     
+    // 确保设置了 ROS_MASTER_URI
+    if (!env.contains("ROS_MASTER_URI")) {
+        env.insert("ROS_MASTER_URI", "http://localhost:11311");
+    }
+    
+    // 启动 roscore
+    qDebug() << "Starting roscore...";
     m_roscoreProcess->setProcessEnvironment(env);
     m_roscoreProcess->start("roscore");
     
     if (!m_roscoreProcess->waitForStarted(5000)) {
         setRVIZState(Error);
-        emit processError("RVIZ", "Failed to start roscore");
+        emit processError("RVIZ", "Failed to start roscore. Please make sure ROS is properly installed.");
         return false;
     }
     
-    // Start timer to check when roscore is ready
+    qDebug() << "Roscore started with PID:" << m_roscoreProcess->processId();
+    qDebug() << "Waiting for roscore to be ready...";
+    
+    // 启动定时器检查 roscore 是否就绪
     m_roscoreReadyTimer->start();
     
     qDebug() << "Roscore started, waiting for it to be ready...";
@@ -264,9 +270,22 @@ void ProcessManager::onRVIZError(QProcess::ProcessError error)
 
 void ProcessManager::checkRoscoreReady()
 {
+    static int attempts = 0;
+    attempts++;
+    
     if (isRoscoreReady()) {
+        qDebug() << "Roscore is ready after" << attempts << "attempts, starting RVIZ now";
+        attempts = 0; // 重置尝试次数
         startRVIZProcess();
     } else {
+        if (attempts > 30) { // 最多尝试30次，约30秒
+            qDebug() << "Giving up waiting for roscore after" << attempts << "attempts";
+            setRVIZState(Error);
+            emit processError("RVIZ", "Roscore did not become ready in time. Please check your ROS installation.");
+            attempts = 0; // 重置尝试次数
+            return;
+        }
+        
         // Check again in 1 second
         QTimer::singleShot(1000, this, &ProcessManager::checkRoscoreReady);
     }
@@ -329,57 +348,238 @@ QString ProcessManager::findQGCAppImage()
 
 bool ProcessManager::checkROSEnvironment()
 {
-    // Check if ROS_DISTRO is set
+    // 检查 ROS 环境变量
     QString rosDistro = qgetenv("ROS_DISTRO");
     if (rosDistro.isEmpty()) {
-        qDebug() << "ROS_DISTRO environment variable not set";
-        return false;
+        qDebug() << "ROS_DISTRO environment variable not set, trying to find ROS setup file";
+        
+        // 尝试查找并自动设置 ROS 环境
+        QStringList possibleSetupFiles = {
+            "/opt/ros/noetic/setup.bash",
+            "/opt/ros/melodic/setup.bash",
+            "/opt/ros/kinetic/setup.bash",
+            QDir::homePath() + "/catkin_ws/devel/setup.bash"
+        };
+        
+        bool foundSetup = false;
+        for (const QString &setupFile : possibleSetupFiles) {
+            QFileInfo fileInfo(setupFile);
+            if (fileInfo.exists()) {
+                qDebug() << "Found ROS setup file at:" << setupFile;
+                
+                // 设置 ROS 环境变量
+                QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+                
+                // 使用 bash 获取 ROS 环境变量
+                QProcess sourceProcess;
+                sourceProcess.setProcessChannelMode(QProcess::MergedChannels);
+                
+                QString command = QString("bash -c \"source %1 && echo ROS_DISTRO=$ROS_DISTRO\"").arg(setupFile);
+                sourceProcess.start("bash", QStringList() << "-c" << command);
+                sourceProcess.waitForFinished(5000);
+                
+                QString output = sourceProcess.readAllStandardOutput();
+                if (output.contains("ROS_DISTRO=")) {
+                    rosDistro = output.split("=").at(1).trimmed();
+                    qputenv("ROS_DISTRO", rosDistro.toUtf8());
+                    qDebug() << "Set ROS_DISTRO to:" << rosDistro;
+                    foundSetup = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!foundSetup) {
+            qDebug() << "Could not find ROS setup file";
+            return false;
+        }
     }
     
-    // Check if roscore command is available
+    // 检查 roscore 命令是否可用
     QProcess testProcess;
     testProcess.start("which", QStringList() << "roscore");
     testProcess.waitForFinished(3000);
     
     if (testProcess.exitCode() != 0) {
-        qDebug() << "roscore command not found";
-        return false;
+        qDebug() << "roscore command not found, trying to find it in common locations";
+        
+        QStringList possibleRoscore = {
+            "/opt/ros/" + rosDistro + "/bin/roscore",
+            "/usr/bin/roscore",
+            "/usr/local/bin/roscore"
+        };
+        
+        bool foundRoscore = false;
+        for (const QString &roscorePath : possibleRoscore) {
+            QFileInfo fileInfo(roscorePath);
+            if (fileInfo.exists() && fileInfo.isExecutable()) {
+                qDebug() << "Found roscore at:" << roscorePath;
+                foundRoscore = true;
+                break;
+            }
+        }
+        
+        if (!foundRoscore) {
+            qDebug() << "roscore command not found";
+            return false;
+        }
     }
     
-    // Check if rviz command is available
+    // 检查 rviz 命令是否可用
     testProcess.start("which", QStringList() << "rviz");
     testProcess.waitForFinished(3000);
     
     if (testProcess.exitCode() != 0) {
-        qDebug() << "rviz command not found";
-        return false;
+        qDebug() << "rviz command not found, trying to find it in common locations";
+        
+        QStringList possibleRviz = {
+            "/opt/ros/" + rosDistro + "/bin/rviz",
+            "/usr/bin/rviz",
+            "/usr/local/bin/rviz"
+        };
+        
+        bool foundRviz = false;
+        for (const QString &rvizPath : possibleRviz) {
+            QFileInfo fileInfo(rvizPath);
+            if (fileInfo.exists() && fileInfo.isExecutable()) {
+                qDebug() << "Found rviz at:" << rvizPath;
+                foundRviz = true;
+                break;
+            }
+        }
+        
+        if (!foundRviz) {
+            qDebug() << "rviz command not found";
+            return false;
+        }
     }
     
+    qDebug() << "ROS environment check passed";
     return true;
 }
 
 bool ProcessManager::isRoscoreReady()
 {
+    qDebug() << "Checking if roscore is ready...";
+    
+    // 尝试使用 rostopic list 命令检查 roscore 是否就绪
     QProcess testProcess;
-    testProcess.start("rostopic", QStringList() << "list");
+    testProcess.setProcessEnvironment(QProcessEnvironment::systemEnvironment());
+    testProcess.start("bash", QStringList() << "-c" << "rostopic list");
     testProcess.waitForFinished(3000);
     
-    return testProcess.exitCode() == 0;
+    if (testProcess.exitCode() == 0) {
+        qDebug() << "Roscore is ready (verified with rostopic list)!";
+        return true;
+    }
+    
+    // 如果 rostopic list 失败，尝试使用 rosnode list 命令
+    testProcess.start("bash", QStringList() << "-c" << "rosnode list");
+    testProcess.waitForFinished(3000);
+    
+    if (testProcess.exitCode() == 0) {
+        qDebug() << "Roscore is ready (verified with rosnode list)!";
+        return true;
+    }
+    
+    // 如果以上方法都失败，尝试检查 roscore 进程是否在运行
+    if (m_roscoreProcess->state() == QProcess::Running) {
+        // 使用进程启动时间来计算运行时间
+        static QDateTime roscoreStartTime;
+        static bool timeInitialized = false;
+        
+        if (!timeInitialized) {
+            roscoreStartTime = QDateTime::currentDateTime();
+            timeInitialized = true;
+        }
+        
+        int elapsedSecs = roscoreStartTime.secsTo(QDateTime::currentDateTime());
+        
+        if (elapsedSecs > 8) {
+            qDebug() << "Assuming roscore is ready after" << elapsedSecs << "seconds of running";
+            return true;
+        }
+        
+        qDebug() << "Roscore is running for" << elapsedSecs << "seconds, waiting for it to be ready...";
+    } else {
+        qDebug() << "Roscore process is not running!";
+        // 如果进程不在运行，重置计时器
+        static bool timeInitialized = false;
+        timeInitialized = false;
+    }
+    
+    return false;
 }
 
 void ProcessManager::startRVIZProcess()
 {
+    qDebug() << "Starting RVIZ...";
+    
+    // 使用系统环境变量
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert("ROS_MASTER_URI", "http://localhost:11311");
+    
+    // 确保设置了必要的环境变量
+    if (!env.contains("ROS_MASTER_URI")) {
+        env.insert("ROS_MASTER_URI", "http://localhost:11311");
+    }
     env.insert("DISPLAY", qgetenv("DISPLAY"));
     
     m_rvizProcess->setProcessEnvironment(env);
-    m_rvizProcess->start("rviz");
+    
+    // 获取 ROS_DISTRO
+    QString rosDistro = qgetenv("ROS_DISTRO");
+    if (rosDistro.isEmpty()) {
+        // 尝试从系统中获取 ROS_DISTRO
+        QProcess rosVersionProcess;
+        rosVersionProcess.start("bash", QStringList() << "-c" << "rosversion -d");
+        rosVersionProcess.waitForFinished(3000);
+        rosDistro = rosVersionProcess.readAllStandardOutput().trimmed();
+        
+        if (!rosDistro.isEmpty()) {
+            qDebug() << "Detected ROS_DISTRO:" << rosDistro;
+        }
+    }
+    
+    // 尝试查找 setup.bash 文件
+    QString setupFile;
+    QStringList possibleSetupFiles = {
+        "/opt/ros/" + rosDistro + "/setup.bash",
+        "/opt/ros/noetic/setup.bash",
+        "/opt/ros/melodic/setup.bash",
+        "/opt/ros/kinetic/setup.bash",
+        QDir::homePath() + "/catkin_ws/devel/setup.bash"
+    };
+    
+    for (const QString &file : possibleSetupFiles) {
+        if (QFileInfo(file).exists()) {
+            setupFile = file;
+            qDebug() << "Found ROS setup file:" << setupFile;
+            break;
+        }
+    }
+    
+    // 使用 bash 启动 RVIZ，确保 ROS 环境变量被正确设置
+    if (!setupFile.isEmpty()) {
+        qDebug() << "Starting RVIZ with ROS setup file:" << setupFile;
+        QString command = QString("source %1 && rosrun rviz rviz").arg(setupFile);
+        m_rvizProcess->start("bash", QStringList() << "-c" << command);
+    } else {
+        // 直接启动 RVIZ
+        qDebug() << "Starting RVIZ directly with rosrun";
+        m_rvizProcess->start("bash", QStringList() << "-c" << "rosrun rviz rviz");
+    }
     
     if (!m_rvizProcess->waitForStarted(5000)) {
-        setRVIZState(Error);
-        emit processError("RVIZ", "Failed to start RVIZ");
-        return;
+        qDebug() << "Failed to start RVIZ with rosrun, trying direct command";
+        
+        // 尝试直接启动 rviz 命令
+        m_rvizProcess->start("rviz");
+        
+        if (!m_rvizProcess->waitForStarted(5000)) {
+            setRVIZState(Error);
+            emit processError("RVIZ", "Failed to start RVIZ. Please make sure ROS and RVIZ are properly installed.");
+            return;
+        }
     }
     
     setRVIZState(Running);
