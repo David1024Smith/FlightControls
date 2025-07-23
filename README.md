@@ -1,0 +1,2 @@
+# FlightControls
+基于Qt 5.12.8的Linux桌面应用程序，用于集成和管理QGroundControl和RVIZ两个飞行控制相关的应用程序。通过X11窗口嵌入技术和预启动机制，实现无缝的应用程序切换体验。
