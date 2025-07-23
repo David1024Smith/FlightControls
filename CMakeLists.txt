@@ -1,0 +1,52 @@
+cmake_minimum_required(VERSION 3.10)
+project(FlightControlsLauncher)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find Qt5
+find_package(Qt5 REQUIRED COMPONENTS Core Widgets Gui)
+
+# Find X11
+find_package(X11 REQUIRED)
+
+# Auto MOC, UIC, RCC
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+
+# Include directories
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# Source files
+set(SOURCES
+    src/main.cpp
+    src/MainWindow.cpp
+    src/ProcessManager.cpp
+    src/WindowEmbedder.cpp
+    src/ApplicationSwitcher.cpp
+    src/X11Helper.cpp
+)
+
+set(HEADERS
+    src/MainWindow.h
+    src/ProcessManager.h
+    src/WindowEmbedder.h
+    src/ApplicationSwitcher.h
+    src/X11Helper.h
+)
+
+# Create executable
+add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+
+# Link libraries
+target_link_libraries(${PROJECT_NAME}
+    Qt5::Core
+    Qt5::Widgets
+    Qt5::Gui
+    ${X11_LIBRARIES}
+    ${X11_Xext_LIB}
+)
+
+# Create src directory
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src)
