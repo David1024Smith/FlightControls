@@ -129,7 +129,7 @@
 
 3. **应用程序切换**: 
    - 点击工具栏的 "QGroundControl" 或 "RVIZ" 按钮
-   - 使用快捷键 `Ctrl+1` (QGC) 或 `Ctrl+2` (RVIZ)
+   - 使用快捷键 `Ctrl+1` (QGroundControl) 或 `Ctrl+2` (RVIZ)
    - 使用菜单栏的相应选项
 
 

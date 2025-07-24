@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(FlightControlsLauncher)
+project(FlightControls_Alternatives_Simple)
 
 # 设置C++标准
 set(CMAKE_CXX_STANDARD 17)
@@ -27,9 +27,10 @@ add_executable(window_manager_simple
     examples/window_manager_simple.cpp
 )
 
-# 设置为默认构建目标
+# 排除原始文件，避免链接冲突
 set_target_properties(window_manager_simple PROPERTIES 
-    OUTPUT_NAME "flight_controls_window_manager"
+    EXCLUDE_FROM_ALL FALSE
+    OUTPUT_NAME "window_manager_simple"
 )
 
 target_link_libraries(window_manager_simple
@@ -46,9 +47,10 @@ add_executable(virtual_desktop_ubuntu_demo
     examples/virtual_desktop_ubuntu_demo.cpp
 )
 
-# 设置为标准构建目标
+# 排除原始文件，避免链接冲突
 set_target_properties(virtual_desktop_ubuntu_demo PROPERTIES 
-    OUTPUT_NAME "flight_controls_virtual_desktop"
+    EXCLUDE_FROM_ALL FALSE
+    OUTPUT_NAME "virtual_desktop_ubuntu_demo"
 )
 
 target_link_libraries(virtual_desktop_ubuntu_demo
@@ -85,39 +87,10 @@ if(Qt5WebEngineWidgets_FOUND)
     # 编译选项
     target_compile_options(alternatives_demo PRIVATE -Wall -Wextra -Wno-unused-parameter)
     
-    # 设置主要目标为默认启动器
-    set_target_properties(alternatives_demo PROPERTIES 
-        OUTPUT_NAME "flight_controls_launcher"
-    )
-    
     set(INSTALL_TARGETS window_manager_simple virtual_desktop_ubuntu_demo alternatives_demo)
 else()
-    message(STATUS "Qt5WebEngineWidgets not found - building without TabBasedLauncher")
-    
-    # 创建没有TabBasedLauncher的简化版本
-    add_executable(alternatives_simple
-        src/WindowManager.cpp
-        src/WindowManager.h
-        src/VirtualDesktopManager.cpp
-        src/VirtualDesktopManager.h
-        examples/alternative_main.cpp
-    )
-
-    target_link_libraries(alternatives_simple
-        Qt5::Core
-        Qt5::Widgets
-        Qt5::Gui
-        ${X11_LIBRARIES}
-    )
-    
-    target_compile_options(alternatives_simple PRIVATE -Wall -Wextra -Wno-unused-parameter)
-    
-    # 设置为主要启动器
-    set_target_properties(alternatives_simple PROPERTIES 
-        OUTPUT_NAME "flight_controls_launcher"
-    )
-    
-    set(INSTALL_TARGETS window_manager_simple virtual_desktop_ubuntu_demo alternatives_simple)
+    message(STATUS "Qt5WebEngineWidgets not found - skipping TabBasedLauncher")
+    set(INSTALL_TARGETS window_manager_simple virtual_desktop_ubuntu_demo)
 endif()
 
 # 编译选项
