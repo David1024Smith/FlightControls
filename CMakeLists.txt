@@ -4,143 +4,122 @@ project(FlightControlsLauncher)
 # 设置C++标准
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# 查找Qt5 - 只要求核心组件
+# 构建类型检查
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+endif()
+
+# 查找Qt5核心组件
 find_package(Qt5 REQUIRED COMPONENTS Core Widgets Gui)
 
-# 查找X11库
-find_package(X11 REQUIRED)
-
-# 包含目录
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
-include_directories(${X11_INCLUDE_DIR})
+# Qt版本检查
+if(Qt5_VERSION VERSION_LESS "5.12.0")
+    message(FATAL_ERROR "需要Qt 5.12或更高版本，当前版本: ${Qt5_VERSION}")
+endif()
 
 # 设置Qt MOC、UIC、RCC
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-# 方案1: 窗口管理器演示（独立构建，避免与原始文件冲突）
-add_executable(window_manager_simple
-    src/WindowManager.cpp
-    src/WindowManager.h
-    examples/window_manager_simple.cpp
+# 包含目录
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# 定义源文件
+set(LAUNCHER_SOURCES
+    src/main.cpp
+    src/FlightControlsLauncher.cpp
 )
 
-# 设置为默认构建目标
-set_target_properties(window_manager_simple PROPERTIES 
-    OUTPUT_NAME "flight_controls_window_manager"
+set(LAUNCHER_HEADERS
+    src/FlightControlsLauncher.h
 )
 
-target_link_libraries(window_manager_simple
+# 浮动启动器可执行文件
+add_executable(flight_controls_launcher
+    ${LAUNCHER_SOURCES}
+    ${LAUNCHER_HEADERS}
+)
+
+# 链接Qt5库
+target_link_libraries(flight_controls_launcher
     Qt5::Core
     Qt5::Widgets
     Qt5::Gui
-    ${X11_LIBRARIES}
 )
-
-# 方案3: 虚拟桌面演示（Ubuntu 18.04专用，独立构建）
-add_executable(virtual_desktop_ubuntu_demo
-    src/VirtualDesktopManager.cpp
-    src/VirtualDesktopManager.h
-    examples/virtual_desktop_ubuntu_demo.cpp
-)
-
-# 设置为标准构建目标
-set_target_properties(virtual_desktop_ubuntu_demo PROPERTIES 
-    OUTPUT_NAME "flight_controls_virtual_desktop"
-)
-
-target_link_libraries(virtual_desktop_ubuntu_demo
-    Qt5::Core
-    Qt5::Widgets
-    Qt5::Gui
-    ${X11_LIBRARIES}
-)
-
-# 检查Qt WebEngine是否可用
-find_package(Qt5WebEngineWidgets QUIET)
-if(Qt5WebEngineWidgets_FOUND)
-    message(STATUS "Qt5WebEngineWidgets found - building full alternatives demo")
-    
-    # 完整演示程序（需要WebEngine）
-    add_executable(alternatives_demo
-        src/WindowManager.cpp
-        src/WindowManager.h
-        src/TabBasedLauncher.cpp
-        src/TabBasedLauncher.h
-        src/VirtualDesktopManager.cpp
-        src/VirtualDesktopManager.h
-        examples/alternative_main.cpp
-    )
-
-    target_link_libraries(alternatives_demo
-        Qt5::Core
-        Qt5::Widgets
-        Qt5::Gui
-        Qt5::WebEngineWidgets
-        ${X11_LIBRARIES}
-    )
-    
-    # 编译选项
-    target_compile_options(alternatives_demo PRIVATE -Wall -Wextra -Wno-unused-parameter)
-    
-    # 设置主要目标为默认启动器
-    set_target_properties(alternatives_demo PROPERTIES 
-        OUTPUT_NAME "flight_controls_launcher"
-    )
-    
-    set(INSTALL_TARGETS window_manager_simple virtual_desktop_ubuntu_demo alternatives_demo)
-else()
-    message(STATUS "Qt5WebEngineWidgets not found - building without TabBasedLauncher")
-    
-    # 创建没有TabBasedLauncher的简化版本
-    add_executable(alternatives_simple
-        src/WindowManager.cpp
-        src/WindowManager.h
-        src/VirtualDesktopManager.cpp
-        src/VirtualDesktopManager.h
-        examples/alternative_main.cpp
-    )
-
-    target_link_libraries(alternatives_simple
-        Qt5::Core
-        Qt5::Widgets
-        Qt5::Gui
-        ${X11_LIBRARIES}
-    )
-    
-    target_compile_options(alternatives_simple PRIVATE -Wall -Wextra -Wno-unused-parameter)
-    
-    # 设置为主要启动器
-    set_target_properties(alternatives_simple PROPERTIES 
-        OUTPUT_NAME "flight_controls_launcher"
-    )
-    
-    set(INSTALL_TARGETS window_manager_simple virtual_desktop_ubuntu_demo alternatives_simple)
-endif()
 
 # 编译选项
-target_compile_options(window_manager_simple PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_compile_options(virtual_desktop_ubuntu_demo PRIVATE -Wall -Wextra -Wno-unused-parameter)
+if(MSVC)
+    target_compile_options(flight_controls_launcher PRIVATE /W4 /WX)
+else()
+    target_compile_options(flight_controls_launcher PRIVATE 
+        -Wall -Wextra -Wpedantic -Werror
+        -Wno-unused-parameter
+    )
+endif()
+
+# Debug模式下的额外选项
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(flight_controls_launcher PRIVATE QT_QML_DEBUG)
+endif()
+
+# Release模式下的优化
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_definitions(flight_controls_launcher PRIVATE QT_NO_DEBUG_OUTPUT)
+endif()
+
+# 设置输出属性
+set_target_properties(flight_controls_launcher PROPERTIES
+    OUTPUT_NAME "flight_controls_launcher"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+# Windows特殊设置
+if(WIN32)
+    set_target_properties(flight_controls_launcher PROPERTIES
+        WIN32_EXECUTABLE TRUE
+    )
+endif()
 
 # 安装目标
-install(TARGETS ${INSTALL_TARGETS}
+install(TARGETS flight_controls_launcher
     RUNTIME DESTINATION bin
+    COMPONENT runtime
 )
 
 # 打包配置
-set(CPACK_PACKAGE_NAME "FlightControls_Alternatives_Simple")
-set(CPACK_PACKAGE_VERSION "1.0.0")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Flight Controls Alternative Launchers - Simple Version")
+set(CPACK_PACKAGE_NAME "FlightControls_Launcher")
+set(CPACK_PACKAGE_VERSION "5.0.0")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Flight Controls Floating Launcher - Simple Application Launcher")
 set(CPACK_PACKAGE_VENDOR "FlightControls Team")
+set(CPACK_PACKAGE_CONTACT "support@flightcontrols.org")
+set(CPACK_PACKAGE_DESCRIPTION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+
+# 平台特定的打包
+if(WIN32)
+    set(CPACK_GENERATOR "NSIS;ZIP")
+elseif(APPLE)
+    set(CPACK_GENERATOR "DragNDrop;TGZ")
+else()
+    set(CPACK_GENERATOR "DEB;RPM;TGZ")
+endif()
 
 include(CPack)
 
 # 输出构建信息
-message(STATUS "=== FlightControls Alternatives 构建配置 ===")
+message(STATUS "=== FlightControls 浮动启动器构建配置 ===")
+message(STATUS "项目: 基于Qt的浮动启动器")
+message(STATUS "方案特点: 悬浮显示在屏幕顶部，提供QGC和RVIZ的统一启动按钮")
 message(STATUS "C++ 标准: ${CMAKE_CXX_STANDARD}")
+message(STATUS "构建类型: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Qt5 版本: ${Qt5_VERSION}")
-message(STATUS "构建目标: ${INSTALL_TARGETS}")
-message(STATUS "X11 库路径: ${X11_LIBRARIES}")
-message(STATUS "==========================================") 
+message(STATUS "编译器: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "启动应用: QGroundControl, RVIZ")
+message(STATUS "跨平台支持: Windows, Linux, macOS")
+message(STATUS "输出文件: flight_controls_launcher")
+message(STATUS "安装目录: ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "============================================") 
