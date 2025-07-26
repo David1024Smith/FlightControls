@@ -20,6 +20,14 @@ if(Qt5_VERSION VERSION_LESS "5.12.0")
     message(FATAL_ERROR "需要Qt 5.12或更高版本，当前版本: ${Qt5_VERSION}")
 endif()
 
+# 查找X11库（Linux窗口管理需要）
+if(UNIX AND NOT APPLE)
+    find_package(X11 REQUIRED)
+    message(STATUS "X11 found - 窗口管理功能可用")
+else()
+    message(STATUS "X11 not available - 窗口管理功能不支持")
+endif()
+
 # 设置Qt MOC、UIC、RCC
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
@@ -27,6 +35,9 @@ set(CMAKE_AUTORCC ON)
 
 # 包含目录
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+if(UNIX AND NOT APPLE AND X11_FOUND)
+    include_directories(${X11_INCLUDE_DIR})
+endif()
 
 # 定义源文件
 set(LAUNCHER_SOURCES
@@ -50,6 +61,11 @@ target_link_libraries(flight_controls_launcher
     Qt5::Widgets
     Qt5::Gui
 )
+
+# 如果是Linux系统，链接X11库
+if(UNIX AND NOT APPLE AND X11_FOUND)
+    target_link_libraries(flight_controls_launcher ${X11_LIBRARIES})
+endif()
 
 # 编译选项
 if(MSVC)
@@ -93,7 +109,7 @@ install(TARGETS flight_controls_launcher
 # 打包配置
 set(CPACK_PACKAGE_NAME "FlightControls_Launcher")
 set(CPACK_PACKAGE_VERSION "5.0.0")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Flight Controls Floating Launcher - Simple Application Launcher")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Flight Controls Floating Launcher - Advanced Window Management")
 set(CPACK_PACKAGE_VENDOR "FlightControls Team")
 set(CPACK_PACKAGE_CONTACT "support@flightcontrols.org")
 set(CPACK_PACKAGE_DESCRIPTION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
@@ -112,12 +128,18 @@ include(CPack)
 
 # 输出构建信息
 message(STATUS "=== FlightControls 浮动启动器构建配置 ===")
-message(STATUS "项目: 基于Qt的浮动启动器")
-message(STATUS "方案特点: 悬浮显示在屏幕顶部，提供QGC和RVIZ的统一启动按钮")
+message(STATUS "项目: 基于Qt的浮动启动器 + 高级窗口管理")
+message(STATUS "方案特点: 悬浮显示，自动最大化，智能窗口管理")
 message(STATUS "C++ 标准: ${CMAKE_CXX_STANDARD}")
 message(STATUS "构建类型: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Qt5 版本: ${Qt5_VERSION}")
 message(STATUS "编译器: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+if(UNIX AND NOT APPLE AND X11_FOUND)
+    message(STATUS "X11库: 可用 - 完整窗口管理功能")
+    message(STATUS "X11库文件: ${X11_LIBRARIES}")
+else()
+    message(STATUS "X11库: 不可用 - 窗口管理功能受限")
+endif()
 message(STATUS "启动应用: QGroundControl, RVIZ")
 message(STATUS "跨平台支持: Windows, Linux, macOS")
 message(STATUS "输出文件: flight_controls_launcher")
