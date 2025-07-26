@@ -6,8 +6,10 @@
 #include <QLoggingCategory>
 #include "FlightControlsLauncher.h"
 
-// 启用调试日志
-Q_LOGGING_CATEGORY(launcher, "flightcontrols.launcher")
+// 简化的日志处理，兼容Qt 5.9
+#define qDebugLauncher qDebug
+#define qWarningLauncher qWarning
+#define qCriticalLauncher qCritical
 
 bool initializeApplication()
 {
@@ -16,12 +18,12 @@ bool initializeApplication()
     QDir appDataDir(appDataPath);
     if (!appDataDir.exists()) {
         if (!appDataDir.mkpath(".")) {
-            qCritical(launcher) << "无法创建应用程序数据目录:" << appDataPath;
+            qCriticalLauncher() << "无法创建应用程序数据目录:" << appDataPath;
             return false;
         }
     }
     
-    qDebug(launcher) << "应用程序数据目录:" << appDataPath;
+    qDebugLauncher() << "应用程序数据目录:" << appDataPath;
     return true;
 }
 
@@ -40,12 +42,12 @@ int main(int argc, char *argv[])
     app.setStyle("Fusion");
     
     // 初始化日志
-    qDebug(launcher) << "========================================";
-    qDebug(launcher) << "启动飞行控制应用程序启动器 v5.0";
-    qDebug(launcher) << "Qt版本:" << QT_VERSION_STR;
-    qDebug(launcher) << "编译时间:" << __DATE__ << __TIME__;
-    qDebug(launcher) << "启动器类型: 浮动启动器";
-    qDebug(launcher) << "========================================";
+    qDebugLauncher() << "========================================";
+    qDebugLauncher() << "启动飞行控制应用程序启动器 v5.0";
+    qDebugLauncher() << "Qt版本:" << QT_VERSION_STR;
+    qDebugLauncher() << "编译时间:" << __DATE__ << __TIME__;
+    qDebugLauncher() << "启动器类型: 浮动启动器";
+    qDebugLauncher() << "========================================";
     
     // 检查基本环境
     if (!initializeApplication()) {
@@ -70,12 +72,12 @@ int main(int argc, char *argv[])
         
     } catch (const std::exception& e) {
         QString errorMsg = QString("启动器初始化失败:\n%1").arg(e.what());
-        qCritical(launcher) << "标准异常:" << e.what();
+        qCriticalLauncher() << "标准异常:" << e.what();
         QMessageBox::critical(nullptr, "启动错误", errorMsg);
         return 1;
     } catch (...) {
         QString errorMsg = "启动器初始化失败: 未知错误";
-        qCritical(launcher) << "未知异常发生";
+        qCriticalLauncher() << "未知异常发生";
         QMessageBox::critical(nullptr, "启动错误", errorMsg);
         return 1;
     }

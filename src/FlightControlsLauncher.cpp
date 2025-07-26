@@ -816,7 +816,8 @@ void FlightControlsLauncher::startApplication(const QString &appName, const QStr
     
     // 对于其他应用程序，使用正常的QProcess管理
     app.process = new QProcess(this);
-    connect(app.process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+    // Qt 5.9兼容的信号连接方式
+    connect(app.process, static_cast<void(QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished),
             this, &FlightControlsLauncher::onProcessFinished);
     
     // 设置进程环境 - 继承系统环境变量

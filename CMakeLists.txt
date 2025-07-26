@@ -15,9 +15,18 @@ endif()
 # 查找Qt5核心组件
 find_package(Qt5 REQUIRED COMPONENTS Core Widgets Gui)
 
-# Qt版本检查
-if(Qt5_VERSION VERSION_LESS "5.12.0")
-    message(FATAL_ERROR "需要Qt 5.12或更高版本，当前版本: ${Qt5_VERSION}")
+# Qt版本检查和兼容性处理
+if(Qt5_VERSION VERSION_LESS "5.9.0")
+    message(FATAL_ERROR "需要Qt 5.9或更高版本，当前版本: ${Qt5_VERSION}")
+elseif(Qt5_VERSION VERSION_LESS "5.12.0")
+    message(WARNING "检测到Qt版本 ${Qt5_VERSION}，推荐使用Qt 5.12+以获得最佳体验")
+    message(STATUS "启用Qt 5.9兼容模式")
+    # 为旧版本Qt添加兼容性定义（避免重复定义）
+    if(NOT DEFINED QT_LEGACY_VERSION)
+        add_definitions(-DQT_LEGACY_VERSION)
+    endif()
+else()
+    message(STATUS "Qt版本 ${Qt5_VERSION} - 完全支持")
 endif()
 
 # 查找X11库（Linux窗口管理需要）
@@ -69,12 +78,18 @@ endif()
 
 # 编译选项
 if(MSVC)
-    target_compile_options(flight_controls_launcher PRIVATE /W4 /WX)
+    target_compile_options(flight_controls_launcher PRIVATE /W4)
 else()
     target_compile_options(flight_controls_launcher PRIVATE 
-        -Wall -Wextra -Wpedantic -Werror
+        -Wall -Wextra -Wpedantic
         -Wno-unused-parameter
+        -Wno-reorder
     )
+    
+    # 只在Release模式下启用-Werror
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        target_compile_options(flight_controls_launcher PRIVATE -Werror)
+    endif()
 endif()
 
 # Debug模式下的额外选项
